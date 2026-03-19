@@ -23,7 +23,9 @@ namespace MMCLIServerMod
             _log = log;
             _requestQueue = new ConcurrentQueue<HttpListenerContext>();
             _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            // Use * wildcard — Mono maps this directly to IPAddress.Any
+            // without DNS resolution (unlike + which can fail on Linux).
+            _listener.Prefixes.Add($"http://*:{port}/");
 
             _listenerThread = new Thread(ListenerLoop)
             {
@@ -35,7 +37,16 @@ namespace MMCLIServerMod
         public void Start()
         {
             _running = true;
-            _listener.Start();
+            try
+            {
+                _listener.Start();
+            }
+            catch (System.Exception ex)
+            {
+                _log.LogError($"HttpListener.Start() failed: {ex}");
+                _running = false;
+                return;
+            }
             _listenerThread.Start();
             _log.LogInfo($"HTTP API listening on http://127.0.0.1:{_port}/");
         }
@@ -214,7 +225,21 @@ namespace MMCLIServerMod
                 w.Field("player_count", ZNet.instance.GetPeers().Count);
 
                 if (EnvMan.instance != null)
+                {
                     w.Field("day", EnvMan.instance.GetDay(ZNet.instance.GetTimeSeconds()));
+
+                    float fraction = EnvMan.instance.GetDayFraction();
+                    float totalHours = fraction * 24f;
+                    int hour = (int)totalHours;
+                    int minute = (int)((totalHours - hour) * 60f);
+                    w.Field("game_time", $"{hour:D2}:{minute:D2}");
+                    w.Field("is_day", EnvMan.IsDay());
+                    w.Field("world_loaded", true);
+                }
+
+                w.Field("save_count", MMCLIServerModPlugin.SaveCount);
+                if (MMCLIServerModPlugin.LastSave != null)
+                    w.Field("last_save", MMCLIServerModPlugin.LastSave);
             }
             else
             {
@@ -258,20 +283,22 @@ namespace MMCLIServerMod
             AppendComma();
             SB.Append('{');
             _depth++;
+            ClearComma(); // fresh scope — no comma before first element
         }
 
         public void EndObject()
         {
             _depth--;
-            ClearComma(); // the closing brace doesn't set a comma at THIS level
+            ClearComma();
             SB.Append('}');
-            SetComma(); // but the next sibling at the parent level needs one
+            SetComma(); // next sibling at parent level needs a comma
         }
 
         public void BeginArray()
         {
             SB.Append('[');
             _depth++;
+            ClearComma(); // fresh scope — no comma before first element
         }
 
         public void EndArray()
