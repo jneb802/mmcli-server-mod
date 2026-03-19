@@ -1,80 +1,47 @@
-using System;
-using System.IO;
 using System.Reflection;
 using BepInEx;
-using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
-namespace Template
+namespace MMCLIServerMod
 {
     [BepInPlugin(ModGUID, ModName, ModVersion)]
-    public class TemplatePlugin : BaseUnityPlugin
+    public class MMCLIServerModPlugin : BaseUnityPlugin
     {
-        private const string ModName = "Template";
-        private const string ModVersion = "1.0.0";
-        private const string Author = "modAuthorName";
-        private const string ModGUID = Author + "." + ModName;
-        private static string ConfigFileName = ModGUID + ".cfg";
-        private static string ConfigFileFullPath = BepInEx.Paths.ConfigPath + Path.DirectorySeparatorChar + ConfigFileName;
+        internal const string ModName = "MMCLIServerMod";
+        internal const string ModVersion = "1.0.0";
+        internal const string Author = "warpalicious";
+        internal const string ModGUID = Author + "." + ModName;
 
-        private readonly Harmony HarmonyInstance = new(ModGUID);
+        private readonly Harmony _harmony = new(ModGUID);
 
-        public static readonly ManualLogSource TemplateLogger = BepInEx.Logging.Logger.CreateLogSource(ModName);
+        internal static ManualLogSource Log = null!;
+        internal static WebServer? Server;
 
         public void Awake()
         {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            HarmonyInstance.PatchAll(assembly);
-            SetupWatcher();
+            Log = Logger;
+
+            var port = Config.Bind("HTTP", "Port", 9878,
+                "Port for the local HTTP API. Only accessible from localhost.");
+
+            Server = new WebServer(port.Value, Log);
+            Server.Start();
+
+            _harmony.PatchAll(Assembly.GetExecutingAssembly());
+
+            Log.LogInfo($"{ModName} v{ModVersion} loaded — HTTP API on port {port.Value}");
         }
 
-        private void OnDestroy()
+        public void Update()
         {
-            Config.Save();
-        }
-        
-        private void SetupWatcher()
-        {
-            _lastReloadTime = DateTime.Now;
-            FileSystemWatcher watcher = new(BepInEx.Paths.ConfigPath, ConfigFileName);
-            // Due to limitations of technology this can trigger twice in a row
-            watcher.Changed += ReadConfigValues;
-            watcher.Created += ReadConfigValues;
-            watcher.Renamed += ReadConfigValues;
-            watcher.IncludeSubdirectories = true;
-            watcher.EnableRaisingEvents = true;
+            Server?.ProcessPending();
         }
 
-        private DateTime _lastReloadTime;
-        private const long RELOAD_DELAY = 10000000; // One second
-
-        private void ReadConfigValues(object sender, FileSystemEventArgs e)
+        public void OnDestroy()
         {
-            var now = DateTime.Now;
-            var time = now.Ticks - _lastReloadTime.Ticks;
-            if (!File.Exists(ConfigFileFullPath) || time < RELOAD_DELAY) return;
-
-            try
-            {
-                TemplateLogger.LogInfo("Attempting to reload configuration...");
-                Config.Reload();
-                TemplateLogger.LogInfo("Configuration reloaded successfully!");
-            }
-            catch
-            {
-                TemplateLogger.LogError($"There was an issue loading {ConfigFileName}");
-                return;
-            }
-
-            _lastReloadTime = now;
-
-            // Update any runtime configurations here
-            if (ZNet.instance != null && !ZNet.instance.IsDedicated())
-            {
-                TemplateLogger.LogInfo("Updating runtime configurations...");
-                // Add your configuration update logic here
-            }
+            Server?.Stop();
+            _harmony.UnpatchSelf();
         }
     }
-} 
+}
