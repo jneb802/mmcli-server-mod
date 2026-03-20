@@ -10,7 +10,7 @@ namespace MMCLIServerMod
     public class MMCLIServerModPlugin : BaseUnityPlugin
     {
         internal const string ModName = "MMCLIServerMod";
-        internal const string ModVersion = "1.0.2";
+        internal const string ModVersion = "1.1.0";
         internal const string Author = "warpalicious";
         internal const string ModGUID = Author + "." + ModName;
 

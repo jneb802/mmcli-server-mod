@@ -23,9 +23,7 @@ namespace MMCLIServerMod
             _log = log;
             _requestQueue = new ConcurrentQueue<HttpListenerContext>();
             _listener = new HttpListener();
-            // Use * wildcard — Mono maps this directly to IPAddress.Any
-            // without DNS resolution (unlike + which can fail on Linux).
-            _listener.Prefixes.Add($"http://*:{port}/");
+            _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
 
             _listenerThread = new Thread(ListenerLoop)
             {
@@ -127,6 +125,9 @@ namespace MMCLIServerMod
                     break;
                 case "/status":
                     HandleStatus(ctx);
+                    break;
+                case "/events":
+                    HandleEvents(ctx);
                     break;
                 default:
                     Respond(ctx, 404, "{\"error\":\"not found\"}");
@@ -246,6 +247,35 @@ namespace MMCLIServerMod
                 w.Field("server_running", false);
             }
 
+            w.EndObject();
+            Respond(ctx, 200, w.ToString());
+        }
+
+        // GET /events?after=N — game events since sequence N
+        private void HandleEvents(HttpListenerContext ctx)
+        {
+            int after = 0;
+            var afterParam = ctx.Request.QueryString["after"];
+            if (afterParam != null)
+                int.TryParse(afterParam, out after);
+
+            var events = EventLog.GetAfter(after);
+            var w = new JsonWriter();
+            w.BeginObject();
+            w.Key("events");
+            w.BeginArray();
+            foreach (var e in events)
+            {
+                w.BeginObject();
+                w.Field("seq", e.Seq);
+                w.Field("type", e.Type);
+                w.Field("player", e.Player);
+                if (e.Uid != 0)
+                    w.Field("uid", e.Uid);
+                w.Field("time", e.Time);
+                w.EndObject();
+            }
+            w.EndArray();
             w.EndObject();
             Respond(ctx, 200, w.ToString());
         }
